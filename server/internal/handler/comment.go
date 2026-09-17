@@ -128,7 +128,7 @@ func commentToResponse(c db.Comment, reactions []ReactionResponse, attachments [
 		QuestionPayload: questionPayloadRaw(c.QuestionPayload),
 		Reactions:       reactions,
 		Attachments:     attachments,
-				DeletedAt:       timestampToPtr(c.DeletedAt),
+		DeletedAt:       timestampToPtr(c.DeletedAt),
 	}
 }
 
@@ -821,7 +821,7 @@ func (h *Handler) fetchCommentsForList(ctx context.Context, args fetchCommentsAr
 					QuickActionID:   r.QuickActionID,
 					QuestionPayload: r.QuestionPayload,
 					Revision:        r.Revision,
-				DeletedAt:       r.DeletedAt,
+					DeletedAt:       r.DeletedAt,
 				}
 				if !r.ParentID.Valid {
 					root := c
@@ -1067,7 +1067,7 @@ func (h *Handler) fetchCommentsForList(ctx context.Context, args fetchCommentsAr
 					ParentID: r.ParentID, WorkspaceID: r.WorkspaceID, ResolvedAt: r.ResolvedAt,
 					ResolvedByType: r.ResolvedByType, ResolvedByID: r.ResolvedByID,
 					SourceTaskID: r.SourceTaskID, QuickActionID: r.QuickActionID, QuestionPayload: r.QuestionPayload, Revision: r.Revision,
-				DeletedAt:       r.DeletedAt,
+					DeletedAt: r.DeletedAt,
 				}
 				stats[uuidToString(r.ID)] = rootStat{ReplyCount: int(r.ReplyCount), LastActivityAt: r.LastActivityAt}
 			}
@@ -1098,7 +1098,7 @@ func (h *Handler) fetchCommentsForList(ctx context.Context, args fetchCommentsAr
 				ParentID: r.ParentID, WorkspaceID: r.WorkspaceID, ResolvedAt: r.ResolvedAt,
 				ResolvedByType: r.ResolvedByType, ResolvedByID: r.ResolvedByID,
 				SourceTaskID: r.SourceTaskID, QuickActionID: r.QuickActionID, QuestionPayload: r.QuestionPayload, Revision: r.Revision,
-				DeletedAt:       r.DeletedAt,
+				DeletedAt: r.DeletedAt,
 			}
 			stats[uuidToString(r.ID)] = rootStat{ReplyCount: int(r.ReplyCount), LastActivityAt: r.LastActivityAt}
 		}
