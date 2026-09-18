@@ -835,6 +835,7 @@ function CommentRow({
               <CommentTriggerChips
                 agents={edit.triggerPreview.agents}
                 blocked={edit.triggerPreview.blocked}
+                hasAllMembersMention={edit.triggerPreview.hasAllMembersMention}
                 draftContent={edit.content}
                 suppressedAgentIds={edit.suppressedAgentIds}
                 onToggle={edit.toggleSuppressedAgent}
@@ -1285,6 +1286,7 @@ function CommentCardImpl({
                     <CommentTriggerChips
                       agents={edit.triggerPreview.agents}
                       blocked={edit.triggerPreview.blocked}
+                      hasAllMembersMention={edit.triggerPreview.hasAllMembersMention}
                       draftContent={edit.content}
                       suppressedAgentIds={edit.suppressedAgentIds}
                       onToggle={edit.toggleSuppressedAgent}
