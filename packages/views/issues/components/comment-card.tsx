@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment, memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronRight, ListChevronsDownUp, Copy, Loader2, MessageSquarePlus, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CheckCircle2, ChevronRight, ListChevronsDownUp, Copy, Link2, Loader2, MessageSquarePlus, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@multica/ui/components/ui/card";
 import { Button, buttonVariants } from "@multica/ui/components/ui/button";
@@ -49,7 +49,7 @@ import { CommentsFoldBar } from "./resolved-thread-bar";
 import { deriveThreadResolution } from "./thread-utils";
 import { RevisionConflictCompare } from "./revision-conflict-compare";
 import { InlineCommentRun, useInlineCommentRunState, type InlineCommentRunState } from "./inline-comment-run";
-import { EMPTY_COMMENT_RUNS, showCommentRunInHeader, type CommentRun } from "./comment-runs";
+import { EMPTY_COMMENT_RUNS, finalAgentReplyByTask, showCommentRunInHeader, type CommentRun } from "./comment-runs";
 import { useCommentAnnotations } from "./use-comment-annotations";
 import { useRunCommentMotion } from "./use-run-comment-motion";
 
@@ -61,7 +61,17 @@ const highlightedCommentBackgroundClass =
 const stickyHeaderFadeClass =
   "after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-1 after:bg-[inherit] after:[mask-image:linear-gradient(to_bottom,#000,transparent)] after:[-webkit-mask-image:linear-gradient(to_bottom,#000,transparent)]";
 
-export function CommentDeliveryReceipts({ entry, className }: { entry: TimelineEntry; className?: string }) {
+export function CommentDeliveryReceipts({
+  entry,
+  repliesByTask,
+  onLocateComment,
+  className,
+}: {
+  entry: TimelineEntry;
+  repliesByTask?: ReadonlyMap<string, TimelineEntry>;
+  onLocateComment?: (commentId: string) => void;
+  className?: string;
+}) {
   const { t } = useT("issues");
   const timeAgo = useTimeAgo();
   if (!entry.agent_deliveries?.length) return null;
@@ -76,7 +86,22 @@ export function CommentDeliveryReceipts({ entry, className }: { entry: TimelineE
           : delivery.status === "pending"
             ? t(($) => $.comment.delivery_pending, { name: delivery.agent_name })
             : t(($) => $.comment.delivery_follow_up, { name: delivery.agent_name });
-        return <div key={delivery.agent_id}>{text}</div>;
+        const reply = delivery.status === "delivered" && delivery.task_id
+          ? repliesByTask?.get(delivery.task_id)
+          : undefined;
+        if (!reply || reply.comment_type !== "comment" || reply.deleted_at || !onLocateComment) {
+          return <div key={delivery.agent_id}>{text}</div>;
+        }
+        return (
+          <button
+            type="button"
+            key={delivery.agent_id}
+            onClick={() => onLocateComment(reply.id)}
+            className="w-fit cursor-pointer text-left hover:text-foreground hover:underline"
+          >
+            {text} · {t(($) => $.comment.delivery_view_reply)}
+          </button>
+        );
       })}
     </div>
   );
@@ -150,6 +175,8 @@ interface CommentCardProps {
   onCreateSubIssue?: (commentId: string) => void;
   /** Resolve/unresolve any comment in this thread (commentId = the target row). */
   onResolveToggle?: (commentId: string, resolved: boolean) => void;
+  /** Copy a deep link (`#comment-…`) to a single comment in this thread. */
+  onCopyLink?: (commentId: string) => void;
   /**
    * When non-null, the thread root is currently rendered as a resolved-but-
    * expanded card. Pass a "Collapse" affordance into the header so the user
@@ -163,6 +190,8 @@ interface CommentCardProps {
    */
   expandedResolvedIds?: ReadonlySet<string>;
   onResolvedExpandChange?: (rootId: string, expand: boolean) => void;
+  /** Scroll and flash a delivered steer run's existing final reply. */
+  onLocateComment?: (commentId: string) => void;
   /** ID of the comment to highlight (flash animation). */
   highlightedCommentId?: string | null;
 }
@@ -640,6 +669,9 @@ function CommentRow({
   onToggleReaction,
   onCreateSubIssue,
   onResolveToggle,
+  onCopyLink,
+  deliveryRepliesByTask,
+  onLocateComment,
 }: {
   runHeader?: ReactNode;
   runMetadata?: ReactNode;
@@ -658,6 +690,9 @@ function CommentRow({
   onToggleReaction: (commentId: string, emoji: string) => void;
   onCreateSubIssue?: (commentId: string) => void;
   onResolveToggle?: (commentId: string, resolved: boolean) => void;
+  onCopyLink?: (commentId: string) => void;
+  deliveryRepliesByTask?: ReadonlyMap<string, TimelineEntry>;
+  onLocateComment?: (commentId: string) => void;
 }) {
   const { t } = useT("issues");
   const locale = useLocale();
@@ -754,6 +789,12 @@ function CommentRow({
                 <Copy className="h-3.5 w-3.5" />
                 {t(($) => $.comment.copy_action)}
               </DropdownMenuItem>
+              {onCopyLink && (
+                <DropdownMenuItem onClick={() => onCopyLink(entry.id)}>
+                  <Link2 className="h-3.5 w-3.5" />
+                  {t(($) => $.comment.copy_link_action)}
+                </DropdownMenuItem>
+              )}
               {onCreateSubIssue && entry.comment_type === "comment" && (
                 <DropdownMenuItem onClick={() => onCreateSubIssue(entry.id)}>
                   <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden />
@@ -892,7 +933,12 @@ function CommentRow({
             <ReadonlyContent content={entry.content ?? ""} attachments={entry.attachments} />
           </div>
           <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-12 pr-4 max-md:pl-3 max-md:pr-3" />
-          <CommentDeliveryReceipts entry={entry} className="pl-12 pr-4 max-md:pl-3 max-md:pr-3" />
+          <CommentDeliveryReceipts
+            entry={entry}
+            repliesByTask={deliveryRepliesByTask}
+            onLocateComment={onLocateComment}
+            className="pl-12 pr-4 max-md:pl-3 max-md:pr-3"
+          />
           {retryableAgentFailureComment(entry) && (
             <TaskCommentRetryButton
               issueId={issueId}
@@ -980,9 +1026,11 @@ function CommentCardImpl({
   onToggleReaction,
   onCreateSubIssue,
   onResolveToggle,
+  onCopyLink,
   onCollapseResolved,
   expandedResolvedIds,
   onResolvedExpandChange,
+  onLocateComment,
   highlightedCommentId,
 }: CommentCardProps) {
   const { t } = useT("issues");
@@ -1017,6 +1065,10 @@ function CommentCardImpl({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const allNestedReplies = replies;
+  const deliveryRepliesByTask = useMemo(
+    () => finalAgentReplyByTask([entry, ...allNestedReplies]),
+    [entry, allNestedReplies],
+  );
   // What the thread shows. Tombstones are excluded from display and counts but
   // stay in `allNestedReplies`, which run anchoring and "has replies" reason
   // over. Every tombstone has at least one live descendant (the server prunes
@@ -1035,7 +1087,8 @@ function CommentCardImpl({
       const reply = run.hasReply ? allNestedReplies.find((entry) => entry.id === run.commentId) : undefined;
       return <Fragment key={run.task.id}><AgentRunComment run={run} entering={enteringRunIds?.has(run.task.id)} commentProps={reply ? {
         issueId, entry: reply, replies: [], currentUserId, canModerate, onReply, onEdit, onDelete,
-        onToggleReaction, onCreateSubIssue, onResolveToggle, highlightedCommentId, enteringRunIds,
+        onToggleReaction, onCreateSubIssue, onResolveToggle, onCopyLink, highlightedCommentId, enteringRunIds,
+        onLocateComment,
       } : undefined} />{reply && reply.id !== commentId && renderAnchoredRuns(reply.id)}</Fragment>;
     });
 
@@ -1197,6 +1250,12 @@ function CommentCardImpl({
                         <Copy className="h-3.5 w-3.5" />
                         {t(($) => $.comment.copy_action)}
                       </DropdownMenuItem>
+                      {onCopyLink && (
+                        <DropdownMenuItem onClick={() => onCopyLink(entry.id)}>
+                          <Link2 className="h-3.5 w-3.5" />
+                          {t(($) => $.comment.copy_link_action)}
+                        </DropdownMenuItem>
+                      )}
                       {onCreateSubIssue && entry.comment_type === "comment" && (
                         <DropdownMenuItem onClick={() => onCreateSubIssue(entry.id)}>
                           <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden />
@@ -1358,7 +1417,12 @@ function CommentCardImpl({
                   </div>
                 )}
                 <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-8 max-md:pl-0" />
-                <CommentDeliveryReceipts entry={entry} className="pl-8 max-md:pl-0" />
+                <CommentDeliveryReceipts
+                  entry={entry}
+                  repliesByTask={deliveryRepliesByTask}
+                  onLocateComment={onLocateComment}
+                  className="pl-8 max-md:pl-0"
+                />
                 {retryableAgentFailureComment(entry) && (
                   <TaskCommentRetryButton
                     issueId={issueId}
@@ -1422,6 +1486,9 @@ function CommentCardImpl({
                       onToggleReaction={onToggleReaction}
                       onCreateSubIssue={onCreateSubIssue}
                       onResolveToggle={onResolveToggle}
+                      onCopyLink={onCopyLink}
+                      deliveryRepliesByTask={deliveryRepliesByTask}
+                      onLocateComment={onLocateComment}
                     />
                   </div>
                   {renderAnchoredRuns(resolutionReply.id)}
@@ -1470,6 +1537,9 @@ function CommentCardImpl({
                         onToggleReaction={onToggleReaction}
                         onCreateSubIssue={onCreateSubIssue}
                         onResolveToggle={onResolveToggle}
+                        onCopyLink={onCopyLink}
+                        deliveryRepliesByTask={deliveryRepliesByTask}
+                        onLocateComment={onLocateComment}
                       />
                     </div>
                   )}
