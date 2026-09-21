@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckCircle2, ChevronRight, ListChevronsDownUp, Copy, Link2, Loader2, MessageSquarePlus, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@multica/ui/components/ui/card";
@@ -49,7 +49,7 @@ import { CommentsFoldBar } from "./resolved-thread-bar";
 import { deriveThreadResolution } from "./thread-utils";
 import { RevisionConflictCompare } from "./revision-conflict-compare";
 import { InlineCommentRun, useInlineCommentRunState, type InlineCommentRunState } from "./inline-comment-run";
-import { EMPTY_COMMENT_RUNS, finalAgentReplyByTask, showCommentRunInHeader, type CommentRun } from "./comment-runs";
+import { EMPTY_COMMENT_RUNS, showCommentRunInHeader, type CommentRun } from "./comment-runs";
 import { useCommentAnnotations } from "./use-comment-annotations";
 import { useRunCommentMotion } from "./use-run-comment-motion";
 
@@ -60,52 +60,6 @@ const highlightedCommentBackgroundClass =
   "bg-[color-mix(in_srgb,var(--card)_95%,var(--brand)_5%)]";
 const stickyHeaderFadeClass =
   "after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-1 after:bg-[inherit] after:[mask-image:linear-gradient(to_bottom,#000,transparent)] after:[-webkit-mask-image:linear-gradient(to_bottom,#000,transparent)]";
-
-export function CommentDeliveryReceipts({
-  entry,
-  repliesByTask,
-  onLocateComment,
-  className,
-}: {
-  entry: TimelineEntry;
-  repliesByTask?: ReadonlyMap<string, TimelineEntry>;
-  onLocateComment?: (commentId: string) => void;
-  className?: string;
-}) {
-  const { t } = useT("issues");
-  const timeAgo = useTimeAgo();
-  if (!entry.agent_deliveries?.length) return null;
-  return (
-    <div className={cn("mt-1.5 flex flex-col gap-0.5 text-micro text-muted-foreground", className)}>
-      {entry.agent_deliveries.map((delivery) => {
-        const text = delivery.status === "delivered"
-          ? t(($) => $.comment.delivery_delivered, {
-              name: delivery.agent_name,
-              time: delivery.delivered_at ? timeAgo(delivery.delivered_at) : "",
-            })
-          : delivery.status === "pending"
-            ? t(($) => $.comment.delivery_pending, { name: delivery.agent_name })
-            : t(($) => $.comment.delivery_follow_up, { name: delivery.agent_name });
-        const reply = delivery.status === "delivered" && delivery.task_id
-          ? repliesByTask?.get(delivery.task_id)
-          : undefined;
-        if (!reply || reply.comment_type !== "comment" || reply.deleted_at || !onLocateComment) {
-          return <div key={delivery.agent_id}>{text}</div>;
-        }
-        return (
-          <button
-            type="button"
-            key={delivery.agent_id}
-            onClick={() => onLocateComment(reply.id)}
-            className="w-fit cursor-pointer text-left hover:text-foreground hover:underline"
-          >
-            {text} · {t(($) => $.comment.delivery_view_reply)}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 function StickyHeaderShell({
   className,
@@ -190,8 +144,6 @@ interface CommentCardProps {
    */
   expandedResolvedIds?: ReadonlySet<string>;
   onResolvedExpandChange?: (rootId: string, expand: boolean) => void;
-  /** Scroll and flash a delivered steer run's existing final reply. */
-  onLocateComment?: (commentId: string) => void;
   /** ID of the comment to highlight (flash animation). */
   highlightedCommentId?: string | null;
 }
@@ -670,8 +622,6 @@ function CommentRow({
   onCreateSubIssue,
   onResolveToggle,
   onCopyLink,
-  deliveryRepliesByTask,
-  onLocateComment,
 }: {
   runHeader?: ReactNode;
   runMetadata?: ReactNode;
@@ -691,8 +641,6 @@ function CommentRow({
   onCreateSubIssue?: (commentId: string) => void;
   onResolveToggle?: (commentId: string, resolved: boolean) => void;
   onCopyLink?: (commentId: string) => void;
-  deliveryRepliesByTask?: ReadonlyMap<string, TimelineEntry>;
-  onLocateComment?: (commentId: string) => void;
 }) {
   const { t } = useT("issues");
   const locale = useLocale();
@@ -933,12 +881,6 @@ function CommentRow({
             <ReadonlyContent content={entry.content ?? ""} attachments={entry.attachments} />
           </div>
           <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-12 pr-4 max-md:pl-3 max-md:pr-3" />
-          <CommentDeliveryReceipts
-            entry={entry}
-            repliesByTask={deliveryRepliesByTask}
-            onLocateComment={onLocateComment}
-            className="pl-12 pr-4 max-md:pl-3 max-md:pr-3"
-          />
           {retryableAgentFailureComment(entry) && (
             <TaskCommentRetryButton
               issueId={issueId}
@@ -1030,7 +972,6 @@ function CommentCardImpl({
   onCollapseResolved,
   expandedResolvedIds,
   onResolvedExpandChange,
-  onLocateComment,
   highlightedCommentId,
 }: CommentCardProps) {
   const { t } = useT("issues");
@@ -1065,17 +1006,20 @@ function CommentCardImpl({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const allNestedReplies = replies;
-  const deliveryRepliesByTask = useMemo(
-    () => finalAgentReplyByTask([entry, ...allNestedReplies]),
-    [entry, allNestedReplies],
-  );
   // What the thread shows. Tombstones are excluded from display and counts but
   // stay in `allNestedReplies`, which run anchoring and "has replies" reason
   // over. Every tombstone has at least one live descendant (the server prunes
   // one that loses its last reply), so no content hides behind this.
   const visibleReplies = allNestedReplies.filter((reply) => !isDeletedComment(reply));
-  const slottedReplyIds = new Set(runs.filter((run) => run.hasReply && run.anchorCommentId && run.commentId !== entry.id)
-    .map((run) => run.commentId));
+  // A run anchored here renders in one slot after its input, ending with its
+  // reply (the run's latest comment). The rest of what the run posted in this
+  // thread joins that slot in posting order; left in the chronological list,
+  // it would render after the reply it preceded (MUL-7548).
+  const slottedRuns = runs.filter((run) => run.hasReply && run.anchorCommentId && run.commentId !== entry.id);
+  const runOutputs = new Map(slottedRuns.map((run) => [run.task.id,
+    allNestedReplies.filter((reply) => reply.actor_type === "agent" && reply.source_task_id === run.task.id)]));
+  const slottedReplyIds = new Set(slottedRuns.flatMap((run) =>
+    [run.commentId, ...(runOutputs.get(run.task.id) ?? []).map((reply) => reply.id)]));
   const renderRuns = (commentId: string, presentation: "inline" | "header" = "inline") => runs.filter((run) => run.commentId === commentId && run.hasReply
     && showCommentRunInHeader(run) === (presentation === "header")
     && (!run.anchorCommentId || run.anchorCommentId === commentId || replyFolded))
@@ -1085,12 +1029,48 @@ function CommentCardImpl({
     && !(replyFolded && run.hasReply))
     .map((run) => {
       const reply = run.hasReply ? allNestedReplies.find((entry) => entry.id === run.commentId) : undefined;
-      return <Fragment key={run.task.id}><AgentRunComment run={run} entering={enteringRunIds?.has(run.task.id)} commentProps={reply ? {
-        issueId, entry: reply, replies: [], currentUserId, canModerate, onReply, onEdit, onDelete,
-        onToggleReaction, onCreateSubIssue, onResolveToggle, onCopyLink, highlightedCommentId, enteringRunIds,
-        onLocateComment,
-      } : undefined} />{reply && reply.id !== commentId && renderAnchoredRuns(reply.id)}</Fragment>;
+      return <Fragment key={run.task.id}>
+        {runOutputs.get(run.task.id)?.filter((output) => output.id !== run.commentId).map(renderReply)}
+        <AgentRunComment run={run} entering={enteringRunIds?.has(run.task.id)} commentProps={reply ? {
+          issueId, entry: reply, replies: [], currentUserId, canModerate, onReply, onEdit, onDelete,
+          onToggleReaction, onCreateSubIssue, onResolveToggle, onCopyLink, highlightedCommentId, enteringRunIds,
+        } : undefined} />{reply && reply.id !== commentId && renderAnchoredRuns(reply.id)}</Fragment>;
     });
+
+  const renderReply = (reply: TimelineEntry) => (
+    <Fragment key={reply.id}>
+      {/* A tombstone keeps its place in the walk — runs anchored to
+          it still render — but contributes no row of its own. */}
+      {!isDeletedComment(reply) && (
+        <div
+          id={`comment-${reply.id}`}
+          className={cn(
+            "border-t border-border/50 transition-colors duration-700",
+            highlightedCommentId === reply.id && highlightedCommentBackgroundClass,
+          )}
+        >
+          <CommentRow
+            issueId={issueId}
+            entry={reply}
+            runHeader={renderRuns(reply.id, "header")}
+            runMetadata={renderRuns(reply.id)}
+            currentUserId={currentUserId}
+            canModerate={canModerate}
+            isResolution={reply.id === replyResolutionId}
+            isHighlighted={highlightedCommentId === reply.id}
+            hasReplies={repliedToIds.has(reply.id)}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onToggleReaction={onToggleReaction}
+            onCreateSubIssue={onCreateSubIssue}
+            onResolveToggle={onResolveToggle}
+            onCopyLink={onCopyLink}
+          />
+        </div>
+      )}
+      {renderAnchoredRuns(reply.id)}
+    </Fragment>
+  );
 
   const replyCount = visibleReplies.length;
   const repliedToIds = new Set(allNestedReplies.map((reply) => reply.parent_id));
@@ -1417,12 +1397,6 @@ function CommentCardImpl({
                   </div>
                 )}
                 <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-8 max-md:pl-0" />
-                <CommentDeliveryReceipts
-                  entry={entry}
-                  repliesByTask={deliveryRepliesByTask}
-                  onLocateComment={onLocateComment}
-                  className="pl-8 max-md:pl-0"
-                />
                 {retryableAgentFailureComment(entry) && (
                   <TaskCommentRetryButton
                     issueId={issueId}
@@ -1487,8 +1461,6 @@ function CommentCardImpl({
                       onCreateSubIssue={onCreateSubIssue}
                       onResolveToggle={onResolveToggle}
                       onCopyLink={onCopyLink}
-                      deliveryRepliesByTask={deliveryRepliesByTask}
-                      onLocateComment={onLocateComment}
                     />
                   </div>
                   {renderAnchoredRuns(resolutionReply.id)}
@@ -1510,42 +1482,7 @@ function CommentCardImpl({
                 </button>
               )}
               {/* Replies — chronological; the resolution keeps its place with a badge */}
-              {allNestedReplies.filter((reply) => !slottedReplyIds.has(reply.id)).map((reply) => (
-                <Fragment key={reply.id}>
-                  {/* A tombstone keeps its place in the walk — runs anchored to
-                      it still render — but contributes no row of its own. */}
-                  {!isDeletedComment(reply) && (
-                    <div
-                      id={`comment-${reply.id}`}
-                      className={cn(
-                        "border-t border-border/50 transition-colors duration-700",
-                        highlightedCommentId === reply.id && highlightedCommentBackgroundClass,
-                      )}
-                    >
-                      <CommentRow
-                        issueId={issueId}
-                        entry={reply}
-                        runHeader={renderRuns(reply.id, "header")}
-                        runMetadata={renderRuns(reply.id)}
-                        currentUserId={currentUserId}
-                        canModerate={canModerate}
-                        isResolution={reply.id === replyResolutionId}
-                        isHighlighted={highlightedCommentId === reply.id}
-                        hasReplies={repliedToIds.has(reply.id)}
-                        onEdit={onEdit}
-                        onDelete={onDelete}
-                        onToggleReaction={onToggleReaction}
-                        onCreateSubIssue={onCreateSubIssue}
-                        onResolveToggle={onResolveToggle}
-                        onCopyLink={onCopyLink}
-                        deliveryRepliesByTask={deliveryRepliesByTask}
-                        onLocateComment={onLocateComment}
-                      />
-                    </div>
-                  )}
-                  {renderAnchoredRuns(reply.id)}
-                </Fragment>
-              ))}
+              {allNestedReplies.filter((reply) => !slottedReplyIds.has(reply.id)).map(renderReply)}
 
               {/* Reply input */}
               <div className="border-t border-border/50 px-4 max-md:px-3 py-2.5">
