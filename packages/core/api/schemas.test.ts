@@ -29,6 +29,7 @@ import {
   ChatPendingTaskSchema,
   ChatSessionListSchema,
   ChatSessionSchema,
+  CommentSchema,
   PrioritizeQueuedChatTaskResponseSchema,
   CreateFeedbackResponseSchema,
   DuplicateIssueErrorBodySchema,
