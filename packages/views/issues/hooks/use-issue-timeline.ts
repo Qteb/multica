@@ -66,6 +66,10 @@ function commentToTimelineEntry(c: Comment): TimelineEntry {
     resolved_by_id: c.resolved_by_id,
     source_task_id: c.source_task_id,
     question_payload: c.question_payload,
+    supplement_task_id: c.supplement_task_id,
+    supplement_status: c.supplement_status,
+    supplement_failure_reason: c.supplement_failure_reason,
+    supplement_delivered_at: c.supplement_delivered_at,
     deleted_at: c.deleted_at,
   };
 }
