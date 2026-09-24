@@ -1,4 +1,4 @@
-import type { AgentQuestionPayload, CommentAuthorType, Reaction } from "./comment";
+import type { AgentQuestionPayload, CommentAuthorType, CommentSupplementReceipt, Reaction } from "./comment";
 import type { Attachment } from "./attachment";
 
 export interface AssigneeFrequencyEntry {
@@ -35,7 +35,9 @@ export interface TimelineEntry {
   resolved_by_type?: CommentAuthorType | null;
   resolved_by_id?: string | null;
   source_task_id?: string | null;
-  /** Delivery receipt for a member message explicitly bound to one live run. */
+  /** Every running turn this comment steered, one receipt per run. */
+  supplements?: CommentSupplementReceipt[];
+  /** Mirrors the first receipt; servers that predate `supplements` send only these. */
   supplement_task_id?: string;
   supplement_status?: "pending" | "delivering" | "delivered" | "failed";
   supplement_failure_reason?: string;
